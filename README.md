@@ -1,2 +1,3 @@
-# asase-ai-chatbot
+# Asase AI chatbot
+
 An AI chatbot using Vercel AI SDK and Hono
