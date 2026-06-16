@@ -1,12 +1,17 @@
 import { render, useState } from "hono/jsx/dom";
 
 type ChatMessage = {
-  role: 'ai' | 'user';
-  text: string;
+  role: 'assistant' | 'user';
+  content: string;
 }
 
 function Chat() {
-  const [ chatMessages, setChatMessages ] = useState<ChatMessage[]>([]);
+  const [ chatMessages, setChatMessages ] = useState<ChatMessage[]>([
+    // {
+    //   role: 'assistant',
+    //   content: '<p>Here is the simplest</p><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100 </code></pre><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100px; height: 100px; background-color: red;">&#x3C;/div> </code></pre> <h3>How to use</h3><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100px; height: 100px; background-color: red;">&#x3C;/div> </code></pre> <h3>How to use it:</h3> <p>Save the code above as an <code>.html</code> file (e.g., <code>box.html</code>) and</p><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100px; height: 100px; background-color: red;">&#x3C;/div> </code></pre> <h3>How to use it:</h3> <p>Save the code above as an <code>.html</code> file (e.g., <code>box.html</code>) and open it in any web browser. You can change the <code>width</code> and <code>height</code> values to resize the box.</p>'
+    // }
+  ]);
 
   async function handleSubmit(event: Event) {
     event.preventDefault();
@@ -14,7 +19,9 @@ function Chat() {
     const data = new FormData(form);
     const prompt = data.get('prompt') as string;
 
-    setChatMessages(prevMessages => prevMessages.concat({ role: 'user', text: prompt }));
+    const newUserMessage: ChatMessage = { role: 'user', content: prompt };
+
+    setChatMessages(prevMessages => prevMessages.concat(newUserMessage));
 
     form.reset();
 
@@ -23,29 +30,64 @@ function Chat() {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, history: chatMessages.concat(newUserMessage) }),
     });
 
-    const { text } = await response.json();
+    const stream = response.body;
     
-    setChatMessages(prevMessages => prevMessages.concat({ role: 'ai', text }));
+    if(!stream) {
+      throw new Error('Response body is not a stream');
+    }
+
+    const reader = stream.getReader();
+
+    setChatMessages(prevMessages =>
+      prevMessages.concat({ role: 'assistant', content: '' })
+    );
+
+    while(true) {
+      const { done, value } = await reader.read();
+      if(done) return;
+      
+      const text = new TextDecoder().decode(value);
+      console.log('=== INCOMING CHUNCK ===');
+      console.log(text);
+      console.log('=== CHUNCK END ===');
+
+      setChatMessages(prevMessages => {
+        const _messages = prevMessages.slice();
+        _messages[_messages.length - 1] = {
+          role: 'assistant',
+          content: text,
+        };
+        return _messages;
+      });
+    }
   }
 
   return (
-    <>
-      <form onSubmit={handleSubmit}>
-        <label for="prompt">Your Prompt</label>
-        <textarea id="prompt" rows={3} name="prompt" />
-        <button>Submit</button>
-      </form>
-      <div>
-        {chatMessages.map(msg => 
-          <article>
-            { msg.text }
-          </article>
-        )}
+    <div class="flex flex-col w-[50rem] min-h-screen py-8">
+      <div class="flex-1 flex flex-col justify-end pb-8 gap-4">
+        {chatMessages.length === 0 && <p>How may I help you?</p>}
+        {chatMessages.map((msg) => (
+          <article
+            class={`prose prose-invert prose-headings:font-bold ${
+              msg.role === 'assistant' ? '' : 'text-stone-400'
+            }`}
+            dangerouslySetInnerHTML={{ __html: msg.content }}
+          ></article>
+        ))}
       </div>
-    </>
+      <form onSubmit={handleSubmit} class="bg-stone-900 px-12 py-6 rounded -mx-12">
+        <p class="mb-4 flex flex-col gap-2">
+          <label for="prompt" class="font-bold text-sm text-stone-300">Your Prompt</label>
+          <textarea id="prompt" rows={3} name="prompt" class="border border-white rounded-sm p-2" />
+        </p>
+        <p class="text-right">
+          <button type="submit" class="bg-indigo-400 px-6 py-2 rounded-sm text-black hover:bg-indigo-500">Submit</button>
+        </p>
+      </form>
+    </div>
   )
 }
 
