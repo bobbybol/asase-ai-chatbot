@@ -1,17 +1,27 @@
-import { render, useState } from "hono/jsx/dom";
+import { render, useState } from 'hono/jsx/dom';
+
+declare global {
+  interface Window {
+    chatId: string;
+    chats: { id: string; title: string }[];
+    messages: { role: 'assistant' | 'user'; content: string }[];
+  }
+}
 
 type ChatMessage = {
   role: 'assistant' | 'user';
   content: string;
-}
+};
+
+const chatId = window.chatId;
+const initialChats = window.chats;
+const initialMessages = window.messages;
 
 function Chat() {
-  const [ chatMessages, setChatMessages ] = useState<ChatMessage[]>([
-    // {
-    //   role: 'assistant',
-    //   content: '<p>Here is the simplest</p><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100 </code></pre><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100px; height: 100px; background-color: red;">&#x3C;/div> </code></pre> <h3>How to use</h3><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100px; height: 100px; background-color: red;">&#x3C;/div> </code></pre> <h3>How to use it:</h3> <p>Save the code above as an <code>.html</code> file (e.g., <code>box.html</code>) and</p><p>Here is the simplest way to display a red box using HTML and CSS:</p> <pre><code class="language-html">&#x3C;div style="width: 100px; height: 100px; background-color: red;">&#x3C;/div> </code></pre> <h3>How to use it:</h3> <p>Save the code above as an <code>.html</code> file (e.g., <code>box.html</code>) and open it in any web browser. You can change the <code>width</code> and <code>height</code> values to resize the box.</p>'
-    // }
-  ]);
+  const [chats, setChats] =
+    useState<{ id: string; title: string }[]>(initialChats);
+  const [chatMessages, setChatMessages] =
+    useState<ChatMessage[]>(initialMessages);
 
   async function handleSubmit(event: Event) {
     event.preventDefault();
@@ -19,81 +29,134 @@ function Chat() {
     const data = new FormData(form);
     const prompt = data.get('prompt') as string;
 
-    const newUserMessage: ChatMessage = { role: 'user', content: prompt };
+    const userMessage: ChatMessage = { role: 'user', content: prompt };
 
-    setChatMessages(prevMessages => prevMessages.concat(newUserMessage));
+    setChatMessages((prevMessages) => prevMessages.concat(userMessage));
 
     form.reset();
+
+    if (chatMessages.length === 0) {
+      fetch('/chat-title', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chatId: chatId,
+          userPrompt: prompt,
+        }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          document.title = data.title;
+          setChats((prevChats) =>
+            prevChats.map((chat) =>
+              chat.id === chatId ? { ...chat, title: data.title } : chat
+            )
+          );
+        });
+    }
 
     const response = await fetch('/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt, history: chatMessages.concat(newUserMessage) }),
+      body: JSON.stringify({
+        chatId: chatId,
+        history: chatMessages.concat(userMessage),
+      }),
     });
 
     const stream = response.body;
-    
-    if(!stream) {
+
+    if (!stream) {
       throw new Error('Response body is not a stream');
     }
 
     const reader = stream.getReader();
 
-    setChatMessages(prevMessages =>
+    setChatMessages((prevMessages) =>
       prevMessages.concat({ role: 'assistant', content: '' })
     );
 
-    while(true) {
+    while (true) {
       const { done, value } = await reader.read();
-      if(done) return;
-      
-      const text = new TextDecoder().decode(value);
-      console.log('=== INCOMING CHUNCK ===');
-      console.log(text);
-      console.log('=== CHUNCK END ===');
 
-      setChatMessages(prevMessages => {
-        const _messages = prevMessages.slice();
-        _messages[_messages.length - 1] = {
+      if (done) {
+        return;
+      }
+
+      const text = new TextDecoder().decode(value);
+
+      setChatMessages((prevMessages) => {
+        const messages = prevMessages.slice();
+        messages[messages.length - 1] = {
           role: 'assistant',
           content: text,
         };
-        return _messages;
+        return messages;
       });
     }
   }
 
   return (
-    <div class="flex flex-col w-[50rem] min-h-screen py-8">
-      <div class="flex-1 flex flex-col justify-end pb-8 gap-4">
-        {chatMessages.length === 0 && <p>How may I help you?</p>}
-        {chatMessages.map((msg) => (
-          <article
-            class={`prose prose-invert prose-headings:font-bold ${
-              msg.role === 'assistant' ? '' : 'text-stone-400'
-            }`}
-            dangerouslySetInnerHTML={{ __html: msg.content }}
-          ></article>
-        ))}
+    <>
+      <nav class="fixed left-0 h-screen bg-stone-800 w-48 px-6 py-16">
+        <ul class="flex flex-col items-start justify-start h-full w-full gap-4">
+          {chats.map((chat) => (
+            <li>
+              <a
+                href={`/${chat.id}`}
+                class="text-stone-300 hover:text-stone-50"
+              >
+                {chat.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <div class="flex flex-col w-[50rem] min-h-screen py-8">
+        <div class="flex-1 flex flex-col justify-end pb-8 gap-4">
+          {chatMessages.length === 0 && <p>How may I help you?</p>}
+          {chatMessages.map((msg) => (
+            <article
+              class={`prose prose-invert prose-headings:font-bold ${
+                msg.role === 'assistant' ? '' : 'text-stone-400'
+              }`}
+              dangerouslySetInnerHTML={{ __html: msg.content }}
+            ></article>
+          ))}
+        </div>
+        <form
+          onSubmit={handleSubmit}
+          class="bg-stone-900 px-12 py-6 rounded -mx-12"
+        >
+          <p class="mb-4 flex flex-col gap-2">
+            <label for="prompt" class="font-bold text-sm text-stone-300">
+              Your Prompt
+            </label>
+            <textarea
+              id="prompt"
+              rows={3}
+              name="prompt"
+              class="border border-white rounded-sm p-2"
+            />
+          </p>
+          <p class="text-right">
+            <button class="bg-indigo-400 px-6 py-2 rounded-sm text-black hover:bg-indigo-500">
+              Submit
+            </button>
+          </p>
+        </form>
       </div>
-      <form onSubmit={handleSubmit} class="bg-stone-900 px-12 py-6 rounded -mx-12">
-        <p class="mb-4 flex flex-col gap-2">
-          <label for="prompt" class="font-bold text-sm text-stone-300">Your Prompt</label>
-          <textarea id="prompt" rows={3} name="prompt" class="border border-white rounded-sm p-2" />
-        </p>
-        <p class="text-right">
-          <button type="submit" class="bg-indigo-400 px-6 py-2 rounded-sm text-black hover:bg-indigo-500">Submit</button>
-        </p>
-      </form>
-    </div>
-  )
+    </>
+  );
 }
 
 const root = document.getElementById('chat');
 
-if(!root) {
+if (!root) {
   throw new Error('Root element not found');
 }
 

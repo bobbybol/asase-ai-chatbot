@@ -1,10 +1,10 @@
-import type { PropsWithChildren } from "hono/jsx";
+import type { PropsWithChildren } from 'hono/jsx';
 
 export default function Layout({ children }: PropsWithChildren) {
   return (
     <html>
       <head>
-        <title>Asase AI Researcher</title>
+        <title>AI Researcher</title>
         {import.meta.env.DEV ? (
           <link rel="stylesheet" href="/client/base.css" />
         ) : (
